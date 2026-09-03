@@ -6,6 +6,10 @@ package ztp
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -28,10 +32,16 @@ func TestConfigMapHandlerServesMatchingSwitchScript(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		&networkingv1alpha1.Switch{
 			ObjectMeta: metav1.ObjectMeta{Name: "leaf-01"},
-			Spec: networkingv1alpha1.SwitchSpec{ZTP: &networkingv1alpha1.ZTP{
-				SourceAddress: "192.0.2.10",
-				ScriptRef:     networkingv1alpha1.ZTPConfigMapReference{Namespace: "provisioning", Name: "leaf-01-ztp", Key: "ztp.sh"},
-			}},
+			Spec: networkingv1alpha1.SwitchSpec{
+				ZTP: &networkingv1alpha1.ZTP{
+					SourceAddress: "192.0.2.10",
+					ScriptRef:     &networkingv1alpha1.ZTPConfigMapReference{Namespace: "provisioning", Name: "leaf-01-ztp", Key: "ztp.sh"},
+				},
+				Bootstrap: &networkingv1alpha1.Bootstrap{Containers: []networkingv1alpha1.BootstrapContainer{{
+					Name:  "ignored-in-configmap-mode",
+					Image: "example.invalid/ignored:latest",
+				}}},
+			},
 		},
 		&corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "provisioning", Name: "leaf-01-ztp"},
@@ -77,5 +87,131 @@ func TestConfigMapHandlerDoesNotFallBackForUnknownSwitch(t *testing.T) {
 	}
 	if got := response.Body.String(); got == "" {
 		t.Error("expected an error body for an unknown switch")
+	}
+}
+
+func TestGeneratedHandlerRendersCompleteSwitchScript(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := networkingv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+
+	kubeconfigPath := filepath.Join(t.TempDir(), "kubeconfig")
+	if err := os.WriteFile(kubeconfigPath, []byte("apiVersion: v1\nkind: Config\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wireletUID := int64(65532)
+
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&networkingv1alpha1.Switch{
+			ObjectMeta: metav1.ObjectMeta{Name: "switch-1"},
+			Spec: networkingv1alpha1.SwitchSpec{
+				Hostname: "switch-1.lab.example",
+				ZTP: &networkingv1alpha1.ZTP{
+					SourceAddress: "192.0.2.10",
+				},
+				Bootstrap: &networkingv1alpha1.Bootstrap{Containers: []networkingv1alpha1.BootstrapContainer{{
+					Name:                    "wirelet",
+					Image:                   "ghcr.io/hardikdr/wirelet:fixed-1",
+					SecurityContext:         &networkingv1alpha1.BootstrapContainerSecurityContext{RunAsUser: &wireletUID, RunAsGroup: &wireletUID},
+					Args:                    []string{"--name=switch-1", "--interface=Ethernet0"},
+					InjectControlKubeconfig: true,
+				}}},
+				NextBootMode: networkingv1alpha1.NextBootModeInstallOS,
+			},
+		},
+	).Build()
+
+	mux := http.NewServeMux()
+	RegisterGenerated(mux, c, GeneratedOptions{ControlKubeconfigFile: kubeconfigPath})
+	req := httptest.NewRequest(http.MethodGet, "http://provisioning.example/ztp", nil)
+	req.RemoteAddr = "192.0.2.10:1234"
+	response := httptest.NewRecorder()
+
+	mux.ServeHTTP(response, req)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{
+		"#!/bin/bash",
+		"set -euo pipefail",
+		"config hostname 'switch-1.lab.example'",
+		"config save -y",
+		"printf '%s' 'YXBpVmVyc2lvbjogdjEKa2luZDogQ29uZmlnCg==' | base64 -d >'/etc/sonic-operator/credentials/wirelet/control-kubeconfig'",
+		"chown 65532:65532 '/etc/sonic-operator/credentials/wirelet/control-kubeconfig'",
+		"chmod 0600 '/etc/sonic-operator/credentials/wirelet/control-kubeconfig'",
+		"docker pull 'ghcr.io/hardikdr/wirelet:fixed-1'",
+		"docker run -d --name 'wirelet' --network host --restart unless-stopped --user '65532:65532'",
+		"-e KUBECONFIG=/var/run/sonic-operator/control-kubeconfig",
+		"-v '/etc/sonic-operator/credentials/wirelet/control-kubeconfig:/var/run/sonic-operator/control-kubeconfig:ro'",
+		"'--name=switch-1' '--interface=Ethernet0'",
+		"What=LABEL=ONIE-BOOT",
+		"sonic-operator-onie-install.service",
+		"set next_entry=ONIE",
+		"set onie_mode=install",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("response does not contain %q:\n%s", want, body)
+		}
+	}
+	if strings.Index(body, "# Configure ONIE install discovery") > strings.Index(body, "config hostname") {
+		t.Error("ONIE boot lifecycle configuration must be rendered before hostname configuration")
+	}
+	if !strings.Contains(body, "sonic-operator: bootstrap container wirelet failed; continuing") {
+		t.Errorf("response does not isolate bootstrap-container failures:\n%s", body)
+	}
+
+	scriptPath := filepath.Join(t.TempDir(), "generated-ztp.sh")
+	if err := os.WriteFile(scriptPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command("bash", "-n", scriptPath).CombinedOutput(); err != nil {
+		t.Fatalf("generated script is not valid Bash: %v: %s", err, output)
+	}
+}
+
+func TestGeneratedHandlerRejectsMissingControlKubeconfig(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := networkingv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&networkingv1alpha1.Switch{
+			ObjectMeta: metav1.ObjectMeta{Name: "switch-1"},
+			Spec: networkingv1alpha1.SwitchSpec{
+				ZTP: &networkingv1alpha1.ZTP{
+					SourceAddress: "192.0.2.10",
+				},
+				Bootstrap: &networkingv1alpha1.Bootstrap{Containers: []networkingv1alpha1.BootstrapContainer{{
+					Name:                    "wirelet",
+					Image:                   "example.invalid/wirelet:latest",
+					InjectControlKubeconfig: true,
+				}}},
+			},
+		},
+	).Build()
+
+	mux := http.NewServeMux()
+	RegisterGenerated(mux, c, GeneratedOptions{})
+	req := httptest.NewRequest(http.MethodGet, "http://provisioning.example/ztp", nil)
+	req.RemoteAddr = "192.0.2.10:1234"
+	response := httptest.NewRecorder()
+
+	mux.ServeHTTP(response, req)
+
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusInternalServerError, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "bootstrap-control-kubeconfig-file") {
+		t.Errorf("response = %q, want missing kubeconfig error", response.Body.String())
 	}
 }
