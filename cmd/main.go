@@ -77,7 +77,7 @@ func main() {
 	flag.StringVar(&httpServerAddr, "http-server-address", "0", "The address the HTTP server for ZTP and ONIE binds to.")
 	flag.StringVar(&ztpConfigFile, "ztp-config-file", "/etc/ztp.json", "Config file containing the parameters to render ZTP scripts.")
 	flag.StringVar(&ztpMode, "ztp-mode", "templates", "ZTP source: templates, configmap, or generated. Configmap mode serves the referenced script verbatim; generated mode renders from Switch objects.")
-	flag.StringVar(&bootstrapControlKubeconfigFile, "bootstrap-control-kubeconfig-file", "", "Optional kubeconfig file injected into bootstrap containers that set injectControlKubeconfig=true.")
+	flag.StringVar(&bootstrapControlKubeconfigFile, "bootstrap-control-kubeconfig-file", "", "Optional kubeconfig file injected into generated containers that set injectControlKubeconfig=true.")
 	flag.StringVar(&onieImagesDir, "onie-images-dir", "/var/lib/sonic-operator/onie", "The directory which contains the ONIE and SONiC installer image files.")
 	flag.StringVar(&onieConfigFile, "onie-config-file", "/etc/onie.json", "Config file containing machine-to-image mappings for ONIE provisioning.")
 	flag.BoolVar(&disableProvisionsingServer, "disable-static-config", false, "If set, the HTTP server for ZTP and ONIE will not be started.")

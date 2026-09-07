@@ -37,10 +37,10 @@ func TestConfigMapHandlerServesMatchingSwitchScript(t *testing.T) {
 					SourceAddress: "192.0.2.10",
 					ScriptRef:     &networkingv1alpha1.ZTPConfigMapReference{Namespace: "provisioning", Name: "leaf-01-ztp", Key: "ztp.sh"},
 				},
-				Bootstrap: &networkingv1alpha1.Bootstrap{Containers: []networkingv1alpha1.BootstrapContainer{{
+				Containers: []networkingv1alpha1.Container{{
 					Name:  "ignored-in-configmap-mode",
 					Image: "example.invalid/ignored:latest",
-				}}},
+				}},
 			},
 		},
 		&corev1.ConfigMap{
@@ -104,6 +104,7 @@ func TestGeneratedHandlerRendersCompleteSwitchScript(t *testing.T) {
 		t.Fatal(err)
 	}
 	wireletUID := int64(65532)
+	agentUID := int64(0)
 
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		&networkingv1alpha1.Switch{
@@ -113,13 +114,32 @@ func TestGeneratedHandlerRendersCompleteSwitchScript(t *testing.T) {
 				ZTP: &networkingv1alpha1.ZTP{
 					SourceAddress: "192.0.2.10",
 				},
-				Bootstrap: &networkingv1alpha1.Bootstrap{Containers: []networkingv1alpha1.BootstrapContainer{{
-					Name:                    "wirelet",
-					Image:                   "ghcr.io/hardikdr/wirelet:fixed-1",
-					SecurityContext:         &networkingv1alpha1.BootstrapContainerSecurityContext{RunAsUser: &wireletUID, RunAsGroup: &wireletUID},
-					Args:                    []string{"--name=switch-1", "--interface=Ethernet0"},
-					InjectControlKubeconfig: true,
-				}}},
+				Volumes: []networkingv1alpha1.Volume{
+					{Name: "dbus", HostPath: &networkingv1alpha1.HostPathVolumeSource{Path: "/var/run/dbus"}},
+					{Name: "sonic-version", HostPath: &networkingv1alpha1.HostPathVolumeSource{Path: "/etc/sonic/sonic_version.yml"}},
+				},
+				Containers: []networkingv1alpha1.Container{
+					{
+						Name:                    "wirelet",
+						Image:                   "ghcr.io/hardikdr/wirelet:fixed-1",
+						SecurityContext:         &networkingv1alpha1.ContainerSecurityContext{RunAsUser: &wireletUID, RunAsGroup: &wireletUID},
+						Args:                    []string{"--name=switch-1", "--interface=Ethernet0"},
+						InjectControlKubeconfig: true,
+					},
+					{
+						Name:    "sonic-agent",
+						Image:   "ghcr.io/giluerre/sonic-agent:latest",
+						Command: []string{"/switch-agent-server"},
+						Args:    []string{"-port", "57400"},
+						SecurityContext: &networkingv1alpha1.ContainerSecurityContext{
+							RunAsUser: &agentUID,
+						},
+						VolumeMounts: []networkingv1alpha1.VolumeMount{
+							{Name: "dbus", MountPath: "/var/run/dbus"},
+							{Name: "sonic-version", MountPath: "/etc/sonic/sonic_version.yml", ReadOnly: true},
+						},
+					},
+				},
 				NextBootMode: networkingv1alpha1.NextBootModeInstallOS,
 			},
 		},
@@ -150,6 +170,7 @@ func TestGeneratedHandlerRendersCompleteSwitchScript(t *testing.T) {
 		"-e KUBECONFIG=/var/run/sonic-operator/control-kubeconfig",
 		"-v '/etc/sonic-operator/credentials/wirelet/control-kubeconfig:/var/run/sonic-operator/control-kubeconfig:ro'",
 		"'--name=switch-1' '--interface=Ethernet0'",
+		"docker run -d --name 'sonic-agent' --network host --restart unless-stopped --user '0' -v '/var/run/dbus:/var/run/dbus:rw' -v '/etc/sonic/sonic_version.yml:/etc/sonic/sonic_version.yml:ro' --entrypoint '/switch-agent-server' 'ghcr.io/giluerre/sonic-agent:latest' '-port' '57400'",
 		"What=LABEL=ONIE-BOOT",
 		"sonic-operator-onie-install.service",
 		"set next_entry=ONIE",
@@ -162,7 +183,7 @@ func TestGeneratedHandlerRendersCompleteSwitchScript(t *testing.T) {
 	if strings.Index(body, "# Configure ONIE install discovery") > strings.Index(body, "config hostname") {
 		t.Error("ONIE boot lifecycle configuration must be rendered before hostname configuration")
 	}
-	if !strings.Contains(body, "sonic-operator: bootstrap container wirelet failed; continuing") {
+	if !strings.Contains(body, "sonic-operator: container wirelet failed; continuing") {
 		t.Errorf("response does not isolate bootstrap-container failures:\n%s", body)
 	}
 
@@ -191,11 +212,11 @@ func TestGeneratedHandlerRejectsMissingControlKubeconfig(t *testing.T) {
 				ZTP: &networkingv1alpha1.ZTP{
 					SourceAddress: "192.0.2.10",
 				},
-				Bootstrap: &networkingv1alpha1.Bootstrap{Containers: []networkingv1alpha1.BootstrapContainer{{
+				Containers: []networkingv1alpha1.Container{{
 					Name:                    "wirelet",
 					Image:                   "example.invalid/wirelet:latest",
 					InjectControlKubeconfig: true,
-				}}},
+				}},
 			},
 		},
 	).Build()
@@ -213,5 +234,19 @@ func TestGeneratedHandlerRejectsMissingControlKubeconfig(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), "bootstrap-control-kubeconfig-file") {
 		t.Errorf("response = %q, want missing kubeconfig error", response.Body.String())
+	}
+}
+
+func TestRenderGeneratedScriptDefaultsHostnameToSwitchName(t *testing.T) {
+	switchObject := &networkingv1alpha1.Switch{
+		ObjectMeta: metav1.ObjectMeta{Name: "leaf-1"},
+	}
+
+	script, err := renderGeneratedScript(switchObject, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(script, "config hostname 'leaf-1'") {
+		t.Errorf("generated script does not default hostname to switch name:\n%s", script)
 	}
 }

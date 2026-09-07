@@ -44,9 +44,9 @@ type ZTP struct {
 	ScriptRef *ZTPConfigMapReference `json:"scriptRef,omitempty"`
 }
 
-// BootstrapContainer declares a Docker container that the provisioning server
-// starts on the switch during generated ZTP provisioning.
-type BootstrapContainer struct {
+// Container declares a Docker container that the provisioning server starts on
+// the switch during generated ZTP provisioning.
+type Container struct {
 	// Name is both the Docker container name and its stable identity on the switch.
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	// +kubebuilder:validation:MaxLength=63
@@ -64,9 +64,14 @@ type BootstrapContainer struct {
 	// +optional
 	Args []string `json:"args,omitempty"`
 
+	// VolumeMounts describes the volumes mounted into the container. Each mount
+	// name must refer to an entry in SwitchSpec.Volumes.
+	// +optional
+	VolumeMounts []VolumeMount `json:"volumeMounts,omitempty"`
+
 	// SecurityContext configures the Unix identity used to run the container.
 	// +optional
-	SecurityContext *BootstrapContainerSecurityContext `json:"securityContext,omitempty"`
+	SecurityContext *ContainerSecurityContext `json:"securityContext,omitempty"`
 
 	// InjectControlKubeconfig mounts the operator's configured control kubeconfig
 	// into this container and sets KUBECONFIG to its in-container path. A
@@ -76,9 +81,9 @@ type BootstrapContainer struct {
 	InjectControlKubeconfig bool `json:"injectControlKubeconfig,omitempty"`
 }
 
-// BootstrapContainerSecurityContext is the supported subset of Kubernetes
+// ContainerSecurityContext is the supported subset of Kubernetes
 // container securityContext for generated Docker containers.
-type BootstrapContainerSecurityContext struct {
+type ContainerSecurityContext struct {
 	// RunAsUser is the numeric Unix user ID used by the container.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
@@ -91,15 +96,38 @@ type BootstrapContainerSecurityContext struct {
 	RunAsGroup *int64 `json:"runAsGroup,omitempty"`
 }
 
-// Bootstrap declares generic containers installed by ZTP. It intentionally
-// contains no workload-specific configuration or Secret references.
-type Bootstrap struct {
-	// Containers are started with host networking and restart automatically on
-	// subsequent SONiC boots.
+// Volume represents a named storage volume made available to Switch containers.
+// It follows the Kubernetes Pod volume model. Generated ZTP currently supports
+// hostPath volumes only.
+type Volume struct {
+	// Name is the stable volume identity referenced by Container.VolumeMounts.
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	// +kubebuilder:validation:MaxLength=63
+	Name string `json:"name"`
+
+	// HostPath represents a pre-existing file or directory on the SONiC host.
 	// +optional
-	// +listType=map
-	// +listMapKey=name
-	Containers []BootstrapContainer `json:"containers,omitempty"`
+	HostPath *HostPathVolumeSource `json:"hostPath,omitempty"`
+}
+
+// HostPathVolumeSource represents a host directory or file mounted into a
+// Switch container.
+type HostPathVolumeSource struct {
+	// Path is the absolute path on the SONiC host.
+	Path string `json:"path"`
+
+	// Type describes the expected host-path type, following the Kubernetes Pod
+	// hostPath API. Generated ZTP does not create missing paths.
+	// +optional
+	Type *v1.HostPathType `json:"type,omitempty"`
+}
+
+// VolumeMount describes a volume mounted into a Switch container. It follows
+// the Kubernetes Pod volumeMount API.
+type VolumeMount struct {
+	Name      string `json:"name"`
+	MountPath string `json:"mountPath"`
+	ReadOnly  bool   `json:"readOnly,omitempty"`
 }
 
 // NextBootMode describes the desired behavior of the switch's next boot.
@@ -127,10 +155,19 @@ type SwitchSpec struct {
 	// +optional
 	ZTP *ZTP `json:"ztp,omitempty"`
 
-	// Bootstrap declares containers that are started on the switch by
-	// --ztp-mode=generated.
+	// Containers are started with host networking and Docker's unless-stopped
+	// restart policy by --ztp-mode=generated.
 	// +optional
-	Bootstrap *Bootstrap `json:"bootstrap,omitempty"`
+	// +listType=map
+	// +listMapKey=name
+	Containers []Container `json:"containers,omitempty"`
+
+	// Volumes are named storage sources available to containers. Generated ZTP
+	// currently supports hostPath volumes only.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	Volumes []Volume `json:"volumes,omitempty"`
 
 	// NextBootMode declares the desired behavior of the next boot. The default
 	// is None. It is configured by --ztp-mode=generated.

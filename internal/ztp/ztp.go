@@ -91,7 +91,7 @@ type generatedHandler struct {
 // GeneratedOptions configures declarative, Switch-backed ZTP rendering.
 type GeneratedOptions struct {
 	// ControlKubeconfigFile is an optional kubeconfig mounted into the operator
-	// pod. It is injected only into generated bootstrap containers that
+	// pod. It is injected only into generated containers that
 	// explicitly opt in.
 	ControlKubeconfigFile string
 }
@@ -282,8 +282,12 @@ func renderGeneratedScript(switchObject *networkingv1alpha1.Switch, controlKubec
 	b.WriteString("\n")
 	b.WriteString("config save -y\n")
 
-	if switchObject.Spec.Bootstrap != nil && len(switchObject.Spec.Bootstrap.Containers) > 0 {
-		containers := switchObject.Spec.Bootstrap.Containers
+	if len(switchObject.Spec.Containers) > 0 {
+		containers := switchObject.Spec.Containers
+		volumes, err := hostPathVolumes(switchObject.Spec.Volumes)
+		if err != nil {
+			return "", err
+		}
 		needsControlKubeconfig := false
 		for _, container := range containers {
 			if container.InjectControlKubeconfig {
@@ -292,7 +296,7 @@ func renderGeneratedScript(switchObject *networkingv1alpha1.Switch, controlKubec
 			}
 		}
 
-		b.WriteString("\n# sonic-operator bootstrap containers\n")
+		b.WriteString("\n# sonic-operator containers\n")
 
 		var encodedControlKubeconfig string
 		if needsControlKubeconfig {
@@ -308,7 +312,11 @@ func renderGeneratedScript(switchObject *networkingv1alpha1.Switch, controlKubec
 		}
 
 		for _, container := range containers {
-			dockerUser, err := bootstrapContainerDockerUser(container)
+			dockerUser, err := containerDockerUser(container)
+			if err != nil {
+				return "", err
+			}
+			volumeMounts, err := containerVolumeMounts(container, volumes)
 			if err != nil {
 				return "", err
 			}
@@ -316,7 +324,7 @@ func renderGeneratedScript(switchObject *networkingv1alpha1.Switch, controlKubec
 			controlKubeconfigPath := ""
 			if container.InjectControlKubeconfig {
 				if container.SecurityContext == nil || container.SecurityContext.RunAsUser == nil {
-					return "", fmt.Errorf("bootstrap container %q injects the control kubeconfig but has no securityContext.runAsUser", container.Name)
+					return "", fmt.Errorf("container %q injects the control kubeconfig but has no securityContext.runAsUser", container.Name)
 				}
 				controlKubeconfigPath = "/etc/sonic-operator/credentials/" + container.Name + "/control-kubeconfig"
 			}
@@ -358,16 +366,26 @@ func renderGeneratedScript(switchObject *networkingv1alpha1.Switch, controlKubec
 				b.WriteString(" --user ")
 				b.WriteString(shellQuote(dockerUser))
 			}
+			for _, volumeMount := range volumeMounts {
+				b.WriteString(" -v ")
+				b.WriteString(shellQuote(volumeMount))
+			}
 			if container.InjectControlKubeconfig {
 				b.WriteString(" -e KUBECONFIG=/var/run/sonic-operator/control-kubeconfig")
 				b.WriteString(" -v ")
 				b.WriteString(shellQuote(controlKubeconfigPath + ":/var/run/sonic-operator/control-kubeconfig:ro"))
 			}
+			if len(container.Command) > 0 {
+				b.WriteString(" --entrypoint ")
+				b.WriteString(shellQuote(container.Command[0]))
+			}
 			b.WriteByte(' ')
 			b.WriteString(shellQuote(container.Image))
-			for _, command := range container.Command {
-				b.WriteByte(' ')
-				b.WriteString(shellQuote(command))
+			if len(container.Command) > 1 {
+				for _, command := range container.Command[1:] {
+					b.WriteByte(' ')
+					b.WriteString(shellQuote(command))
+				}
 			}
 			for _, arg := range container.Args {
 				b.WriteByte(' ')
@@ -375,7 +393,7 @@ func renderGeneratedScript(switchObject *networkingv1alpha1.Switch, controlKubec
 			}
 			b.WriteString("\n); then\n")
 			b.WriteString("  echo ")
-			b.WriteString(shellQuote("sonic-operator: bootstrap container " + container.Name + " failed; continuing"))
+			b.WriteString(shellQuote("sonic-operator: container " + container.Name + " failed; continuing"))
 			b.WriteString(" >&2\nfi\n")
 		}
 	}
@@ -384,14 +402,14 @@ func renderGeneratedScript(switchObject *networkingv1alpha1.Switch, controlKubec
 	return b.String(), nil
 }
 
-func bootstrapContainerDockerUser(container networkingv1alpha1.BootstrapContainer) (string, error) {
+func containerDockerUser(container networkingv1alpha1.Container) (string, error) {
 	if container.SecurityContext == nil {
 		return "", nil
 	}
 
 	securityContext := container.SecurityContext
 	if securityContext.RunAsGroup != nil && securityContext.RunAsUser == nil {
-		return "", fmt.Errorf("bootstrap container %q sets securityContext.runAsGroup without securityContext.runAsUser", container.Name)
+		return "", fmt.Errorf("container %q sets securityContext.runAsGroup without securityContext.runAsUser", container.Name)
 	}
 	if securityContext.RunAsUser == nil {
 		return "", nil
@@ -402,6 +420,50 @@ func bootstrapContainerDockerUser(container networkingv1alpha1.BootstrapContaine
 		return user, nil
 	}
 	return user + ":" + strconv.FormatInt(*securityContext.RunAsGroup, 10), nil
+}
+
+func hostPathVolumes(volumes []networkingv1alpha1.Volume) (map[string]string, error) {
+	result := make(map[string]string, len(volumes))
+	for _, volume := range volumes {
+		if volume.Name == "" {
+			return nil, fmt.Errorf("volume name is empty")
+		}
+		if _, exists := result[volume.Name]; exists {
+			return nil, fmt.Errorf("duplicate volume %q", volume.Name)
+		}
+		if volume.HostPath == nil {
+			return nil, fmt.Errorf("volume %q must specify hostPath", volume.Name)
+		}
+		if !strings.HasPrefix(volume.HostPath.Path, "/") {
+			return nil, fmt.Errorf("volume %q hostPath %q must be absolute", volume.Name, volume.HostPath.Path)
+		}
+		result[volume.Name] = volume.HostPath.Path
+	}
+	return result, nil
+}
+
+func containerVolumeMounts(container networkingv1alpha1.Container, volumes map[string]string) ([]string, error) {
+	result := make([]string, 0, len(container.VolumeMounts))
+	mountPaths := make(map[string]struct{}, len(container.VolumeMounts))
+	for _, mount := range container.VolumeMounts {
+		hostPath, exists := volumes[mount.Name]
+		if !exists {
+			return nil, fmt.Errorf("container %q mounts unknown volume %q", container.Name, mount.Name)
+		}
+		if !strings.HasPrefix(mount.MountPath, "/") {
+			return nil, fmt.Errorf("container %q mountPath %q must be absolute", container.Name, mount.MountPath)
+		}
+		if _, exists := mountPaths[mount.MountPath]; exists {
+			return nil, fmt.Errorf("container %q mounts multiple volumes at %q", container.Name, mount.MountPath)
+		}
+		mountPaths[mount.MountPath] = struct{}{}
+		mode := "rw"
+		if mount.ReadOnly {
+			mode = "ro"
+		}
+		result = append(result, hostPath+":"+mount.MountPath+":"+mode)
+	}
+	return result, nil
 }
 
 func appendONIEInstallBootConfig(b *strings.Builder) {

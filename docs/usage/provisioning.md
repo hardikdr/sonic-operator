@@ -6,7 +6,7 @@ The provisioning server serves ZTP scripts and ONIE installer artifacts over HTT
 - `--http-server-address`: bind address for the provisioning server.
 - `--ztp-config-file`: JSON file with ZTP parameters (default `/etc/ztp.json`).
 - `--ztp-mode`: ZTP source: `templates` (default), `configmap`, or `generated`.
-- `--bootstrap-control-kubeconfig-file`: optional control kubeconfig mounted into the operator and made available to opted-in generated bootstrap containers.
+- `--bootstrap-control-kubeconfig-file`: optional control kubeconfig mounted into the operator and made available to opted-in generated containers.
 - `--onie-installer-dir`: directory containing ONIE installer files (default `/var/lib/sonic-operator/onie`).
 
 ## ZTP
@@ -62,25 +62,53 @@ spec:
   hostname: switch-1
   ztp:
     sourceAddress: "2001:db8:100::11"
-  bootstrap:
-    containers:
-    - name: wirelet
-      image: ghcr.io/ironcore-dev/wirelet:fixed-1
-      securityContext:
-        runAsUser: 65532
-        runAsGroup: 65532
-      args:
-      - --name=switch-1
-      - --interface=Ethernet0
-      injectControlKubeconfig: true
+  containers:
+  - name: wirelet
+    image: ghcr.io/ironcore-dev/wirelet:fixed-1
+    securityContext:
+      runAsUser: 65532
+      runAsGroup: 65532
+    args:
+    - --name=switch-1
+    - --interface=Ethernet0
+    injectControlKubeconfig: true
 ```
 
 Each container is pulled and started with host networking and Docker's
 `unless-stopped` restart policy. `command` overrides the image entrypoint;
 `args` are appended after `command` or the image entrypoint. `hostname`
-defaults to the `Switch` object name when omitted. Bootstrap containers are
+defaults to the `Switch` object name when omitted. Containers are
 best effort: a failure to prepare or start one is logged and does not prevent
 other containers from being attempted.
+
+### Volumes
+
+Generated ZTP follows the Kubernetes Pod volume model: define named volumes in
+`spec.volumes`, then refer to them from a container's `volumeMounts`. The
+current generated Docker runtime supports `hostPath` volumes only:
+
+```yaml
+spec:
+  volumes:
+  - name: dbus
+    hostPath:
+      path: /var/run/dbus
+      type: Directory
+  containers:
+  - name: sonic-agent
+    image: ghcr.io/giluerre/sonic-agent:latest
+    command: ["/switch-agent-server"]
+    args: ["-port", "57400"]
+    securityContext:
+      runAsUser: 0
+    volumeMounts:
+    - name: dbus
+      mountPath: /var/run/dbus
+```
+
+This renders a Docker mount before the image, for example
+`-v /var/run/dbus:/var/run/dbus:rw`. The volume and mount names must match;
+host paths and mount paths must be absolute.
 
 ### ONIE boot discovery
 
