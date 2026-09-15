@@ -20,6 +20,8 @@ import (
 	networkingv1alpha1 "github.com/ironcore-dev/sonic-operator/api/v1alpha1"
 )
 
+const matchingSwitchRemoteAddr = "192.0.2.10:1234"
+
 func TestConfigMapHandlerServesMatchingSwitchScript(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := corev1.AddToScheme(scheme); err != nil {
@@ -52,7 +54,7 @@ func TestConfigMapHandlerServesMatchingSwitchScript(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterConfigMap(mux, c)
 	req := httptest.NewRequest(http.MethodGet, "http://provisioning.example/ztp", nil)
-	req.RemoteAddr = "192.0.2.10:1234"
+	req.RemoteAddr = matchingSwitchRemoteAddr
 	response := httptest.NewRecorder()
 
 	mux.ServeHTTP(response, req)
@@ -148,7 +150,7 @@ func TestGeneratedHandlerRendersCompleteSwitchScript(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterGenerated(mux, c, GeneratedOptions{ControlKubeconfigFile: kubeconfigPath})
 	req := httptest.NewRequest(http.MethodGet, "http://provisioning.example/ztp", nil)
-	req.RemoteAddr = "192.0.2.10:1234"
+	req.RemoteAddr = matchingSwitchRemoteAddr
 	response := httptest.NewRecorder()
 
 	mux.ServeHTTP(response, req)
@@ -157,6 +159,13 @@ func TestGeneratedHandlerRendersCompleteSwitchScript(t *testing.T) {
 		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
 	}
 	body := response.Body.String()
+	wantBody, err := os.ReadFile("testdata/generated-mode.golden.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body != string(wantBody) {
+		t.Errorf("rendered script differs from testdata/generated-mode.golden.sh\ngot:\n%s\nwant:\n%s", body, wantBody)
+	}
 	for _, want := range []string{
 		"#!/bin/bash",
 		"set -euo pipefail",
@@ -224,7 +233,7 @@ func TestGeneratedHandlerRejectsMissingControlKubeconfig(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterGenerated(mux, c, GeneratedOptions{})
 	req := httptest.NewRequest(http.MethodGet, "http://provisioning.example/ztp", nil)
-	req.RemoteAddr = "192.0.2.10:1234"
+	req.RemoteAddr = matchingSwitchRemoteAddr
 	response := httptest.NewRecorder()
 
 	mux.ServeHTTP(response, req)
