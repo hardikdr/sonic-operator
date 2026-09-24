@@ -259,3 +259,25 @@ func TestRenderGeneratedScriptDefaultsHostnameToSwitchName(t *testing.T) {
 		t.Errorf("generated script does not default hostname to switch name:\n%s", script)
 	}
 }
+
+func TestShellQuoteRoundTripsThroughBash(t *testing.T) {
+	tests := map[string]string{
+		"empty":             "",
+		"simple":            "simple",
+		"spaces":            "contains spaces",
+		"single quote":      "a'b",
+		"command expansion": `$(echo unsafe)`,
+	}
+
+	for name, value := range tests {
+		t.Run(name, func(t *testing.T) {
+			output, err := exec.Command("bash", "-c", "printf '%s' "+shellQuote(value)).CombinedOutput()
+			if err != nil {
+				t.Fatalf("executing quoted value: %v: %s", err, output)
+			}
+			if got := string(output); got != value {
+				t.Errorf("round-trip = %q, want %q", got, value)
+			}
+		})
+	}
+}

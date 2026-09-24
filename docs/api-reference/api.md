@@ -333,7 +333,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `hostname` _string_ | Hostname is configured on the switch by --ztp-mode=generated. If omitted,<br />the generated script uses the Switch object name. |  |  |
+| `hostname` _string_ | Hostname is configured on the switch by --ztp-mode=generated. If omitted,<br />the generated script uses the Switch object name. |  | MaxLength: 253 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br /> |
 | `management` _[Management](#management)_ |  |  |  |
 | `ztp` _[ZTP](#ztp)_ | ZTP identifies the switch while it requests its initial provisioning script. |  |  |
 | `containers` _[Container](#container) array_ | Containers are started with host networking and Docker's unless-stopped<br />restart policy by --ztp-mode=generated. |  |  |

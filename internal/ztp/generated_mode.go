@@ -208,5 +208,5 @@ func containerVolumeMounts(container networkingv1alpha1.Container, volumes map[s
 }
 
 func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\\\"'\\\"'") + "'"
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }

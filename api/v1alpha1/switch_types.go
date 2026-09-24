@@ -147,6 +147,8 @@ type SwitchSpec struct {
 	// Hostname is configured on the switch by --ztp-mode=generated. If omitted,
 	// the generated script uses the Switch object name.
 	// +optional
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +kubebuilder:validation:MaxLength=253
 	Hostname string `json:"hostname,omitempty"`
 
 	Management Management `json:"management,omitempty"`

@@ -137,6 +137,8 @@ spec:
                 description: |-
                   Hostname is configured on the switch by --ztp-mode=generated. If omitted,
                   the generated script uses the Switch object name.
+                maxLength: 253
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
               macAddress:
                 description: MacAddress is the MAC address assigned to this interface.
