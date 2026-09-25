@@ -69,6 +69,10 @@ spec:
                       items:
                         type: string
                       type: array
+                    hostPID:
+                      description: HostPID controls whether the container shares the
+                        SONiC host PID namespace.
+                      type: boolean
                     image:
                       description: Image is the container image pulled by Docker on
                         the switch.
@@ -91,6 +95,10 @@ spec:
                       description: SecurityContext configures the Unix identity used
                         to run the container.
                       properties:
+                        privileged:
+                          description: Privileged runs the container with full access
+                            to the SONiC host.
+                          type: boolean
                         runAsGroup:
                           description: |-
                             RunAsGroup is the numeric Unix group ID used by the container. It requires
