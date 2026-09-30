@@ -19,7 +19,9 @@ spec:
   containers:
   - name: wirelet
     image: ghcr.io/hardikdr/wirelet:fixed-1
+    hostPID: true
     securityContext:
+      privileged: true
       runAsUser: 65532
       runAsGroup: 65532
     args:

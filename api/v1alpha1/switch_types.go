@@ -69,6 +69,10 @@ type Container struct {
 	// +optional
 	VolumeMounts []VolumeMount `json:"volumeMounts,omitempty"`
 
+	// HostPID controls whether the container shares the SONiC host PID namespace.
+	// +optional
+	HostPID bool `json:"hostPID,omitempty"`
+
 	// SecurityContext configures the Unix identity used to run the container.
 	// +optional
 	SecurityContext *ContainerSecurityContext `json:"securityContext,omitempty"`
@@ -84,6 +88,10 @@ type Container struct {
 // ContainerSecurityContext is the supported subset of Kubernetes
 // container securityContext for generated Docker containers.
 type ContainerSecurityContext struct {
+	// Privileged runs the container with full access to the SONiC host.
+	// +optional
+	Privileged bool `json:"privileged,omitempty"`
+
 	// RunAsUser is the numeric Unix user ID used by the container.
 	// +optional
 	// +kubebuilder:validation:Minimum=0

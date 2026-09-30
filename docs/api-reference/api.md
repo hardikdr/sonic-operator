@@ -55,6 +55,7 @@ _Appears in:_
 | `command` _string array_ | Command overrides the image entrypoint. |  |  |
 | `args` _string array_ | Args are appended after Command, or after the image entrypoint when Command is empty. |  |  |
 | `volumeMounts` _[VolumeMount](#volumemount) array_ | VolumeMounts describes the volumes mounted into the container. Each mount<br />name must refer to an entry in SwitchSpec.Volumes. |  |  |
+| `hostPID` _boolean_ | HostPID controls whether the container shares the SONiC host PID namespace. |  |  |
 | `securityContext` _[ContainerSecurityContext](#containersecuritycontext)_ | SecurityContext configures the Unix identity used to run the container. |  |  |
 | `injectControlKubeconfig` _boolean_ | InjectControlKubeconfig mounts the operator's configured control kubeconfig<br />into this container and sets KUBECONFIG to its in-container path. A<br />securityContext with runAsUser is required so the generated script can<br />grant access to a private, per-container credential file. |  |  |
 
@@ -73,6 +74,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `privileged` _boolean_ | Privileged runs the container with full access to the SONiC host. |  |  |
 | `runAsUser` _integer_ | RunAsUser is the numeric Unix user ID used by the container. |  | Minimum: 0 <br /> |
 | `runAsGroup` _integer_ | RunAsGroup is the numeric Unix group ID used by the container. It requires<br />runAsUser to be set as well. |  | Minimum: 0 <br /> |
 

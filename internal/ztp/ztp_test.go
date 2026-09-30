@@ -124,7 +124,8 @@ func TestGeneratedHandlerRendersCompleteSwitchScript(t *testing.T) {
 					{
 						Name:                    "wirelet",
 						Image:                   "ghcr.io/hardikdr/wirelet:fixed-1",
-						SecurityContext:         &networkingv1alpha1.ContainerSecurityContext{RunAsUser: &wireletUID, RunAsGroup: &wireletUID},
+						HostPID:                 true,
+						SecurityContext:         &networkingv1alpha1.ContainerSecurityContext{Privileged: true, RunAsUser: &wireletUID, RunAsGroup: &wireletUID},
 						Args:                    []string{"--name=switch-1", "--interface=Ethernet0"},
 						InjectControlKubeconfig: true,
 					},
@@ -175,7 +176,7 @@ func TestGeneratedHandlerRendersCompleteSwitchScript(t *testing.T) {
 		"chown 65532:65532 '/etc/sonic-operator/credentials/wirelet/control-kubeconfig'",
 		"chmod 0600 '/etc/sonic-operator/credentials/wirelet/control-kubeconfig'",
 		"docker pull 'ghcr.io/hardikdr/wirelet:fixed-1'",
-		"docker run -d --name 'wirelet' --network host --restart unless-stopped --user '65532:65532'",
+		"docker run -d --name 'wirelet' --network host --pid host --privileged --restart unless-stopped --user '65532:65532'",
 		"-e KUBECONFIG=/var/run/sonic-operator/control-kubeconfig",
 		"-v '/etc/sonic-operator/credentials/wirelet/control-kubeconfig:/var/run/sonic-operator/control-kubeconfig:ro'",
 		"'--name=switch-1' '--interface=Ethernet0'",

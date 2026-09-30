@@ -31,6 +31,8 @@ type generatedModeTemplateData struct {
 type generatedModeContainerData struct {
 	Name                     string
 	Image                    string
+	HostPID                  bool
+	Privileged               bool
 	DockerUser               string
 	VolumeMounts             []string
 	InjectControlKubeconfig  bool
@@ -120,12 +122,16 @@ func buildGeneratedModeTemplateData(
 		containerData := generatedModeContainerData{
 			Name:                     container.Name,
 			Image:                    container.Image,
+			HostPID:                  container.HostPID,
 			DockerUser:               dockerUser,
 			VolumeMounts:             volumeMounts,
 			InjectControlKubeconfig:  container.InjectControlKubeconfig,
 			EncodedControlKubeconfig: encodedControlKubeconfig,
 			Args:                     container.Args,
 			FailureMessage:           "sonic-operator: container " + container.Name + " failed; continuing",
+		}
+		if container.SecurityContext != nil {
+			containerData.Privileged = container.SecurityContext.Privileged
 		}
 		if len(container.Command) > 0 {
 			containerData.Entrypoint = container.Command[0]

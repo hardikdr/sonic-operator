@@ -50,7 +50,7 @@ chown {{ .DockerUser }} {{ shellQuote .ControlKubeconfigPath }} &&
 chmod 0600 {{ shellQuote .ControlKubeconfigPath }} &&
 {{ end }}docker pull {{ shellQuote .Image }} &&
 (docker rm -f {{ shellQuote .Name }} >/dev/null 2>&1 || true) &&
-docker run -d --name {{ shellQuote .Name }} --network host --restart unless-stopped{{ if .DockerUser }} --user {{ shellQuote .DockerUser }}{{ end }}{{ range .VolumeMounts }} -v {{ shellQuote . }}{{ end }}{{ if .InjectControlKubeconfig }} -e KUBECONFIG=/var/run/sonic-operator/control-kubeconfig -v {{ shellQuote (printf "%s:/var/run/sonic-operator/control-kubeconfig:ro" .ControlKubeconfigPath) }}{{ end }}{{ if .Entrypoint }} --entrypoint {{ shellQuote .Entrypoint }}{{ end }} {{ shellQuote .Image }}{{ range .Command }} {{ shellQuote . }}{{ end }}{{ range .Args }} {{ shellQuote . }}{{ end }}
+docker run -d --name {{ shellQuote .Name }} --network host{{ if .HostPID }} --pid host{{ end }}{{ if .Privileged }} --privileged{{ end }} --restart unless-stopped{{ if .DockerUser }} --user {{ shellQuote .DockerUser }}{{ end }}{{ range .VolumeMounts }} -v {{ shellQuote . }}{{ end }}{{ if .InjectControlKubeconfig }} -e KUBECONFIG=/var/run/sonic-operator/control-kubeconfig -v {{ shellQuote (printf "%s:/var/run/sonic-operator/control-kubeconfig:ro" .ControlKubeconfigPath) }}{{ end }}{{ if .Entrypoint }} --entrypoint {{ shellQuote .Entrypoint }}{{ end }} {{ shellQuote .Image }}{{ range .Command }} {{ shellQuote . }}{{ end }}{{ range .Args }} {{ shellQuote . }}{{ end }}
 ); then
   echo {{ shellQuote .FailureMessage }} >&2
 fi
