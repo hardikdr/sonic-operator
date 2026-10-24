@@ -8,10 +8,14 @@ import (
 	"embed"
 	"encoding/base64"
 	"fmt"
+	"net/netip"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"text/template"
+
+	"k8s.io/client-go/tools/clientcmd"
 
 	networkingv1alpha1 "github.com/ironcore-dev/sonic-operator/api/v1alpha1"
 )
@@ -26,10 +30,16 @@ var generatedModeTemplate = template.Must(
 )
 
 type generatedModeTemplateData struct {
-	SwitchName    string
-	Hostname      string
-	ConfigureONIE bool
-	Containers    []generatedModeContainerData
+	SwitchName             string
+	Hostname               string
+	ConfigureONIE          bool
+	ControlKubeconfigRoute *generatedModeControlKubeconfigRouteData
+	Containers             []generatedModeContainerData
+}
+
+type generatedModeControlKubeconfigRouteData struct {
+	FamilyFlag  string
+	Destination string
 }
 
 type generatedModeContainerData struct {
@@ -111,6 +121,10 @@ func buildGeneratedModeTemplateData(
 			return nil, fmt.Errorf("reading control kubeconfig file %q: %w", controlKubeconfigFilePath, err)
 		}
 		encodedControlKubeconfig = base64.StdEncoding.EncodeToString(kubeconfig)
+		data.ControlKubeconfigRoute, err = controlKubeconfigRoute(kubeconfig)
+		if err != nil {
+			return nil, fmt.Errorf("determining control kubeconfig management route: %w", err)
+		}
 	}
 
 	for _, container := range switchObject.Spec.Containers {
@@ -151,6 +165,36 @@ func buildGeneratedModeTemplateData(
 	}
 
 	return data, nil
+}
+
+func controlKubeconfigRoute(kubeconfig []byte) (*generatedModeControlKubeconfigRouteData, error) {
+	config, err := clientcmd.Load(kubeconfig)
+	if err != nil {
+		return nil, fmt.Errorf("loading kubeconfig: %w", err)
+	}
+	context, ok := config.Contexts[config.CurrentContext]
+	if !ok {
+		return nil, fmt.Errorf("current context %q does not exist", config.CurrentContext)
+	}
+	cluster, ok := config.Clusters[context.Cluster]
+	if !ok {
+		return nil, fmt.Errorf("cluster %q does not exist", context.Cluster)
+	}
+	serverURL, err := url.Parse(cluster.Server)
+	if err != nil {
+		return nil, fmt.Errorf("parsing cluster server %q: %w", cluster.Server, err)
+	}
+	address, err := netip.ParseAddr(serverURL.Hostname())
+	if err != nil {
+		return nil, fmt.Errorf("cluster server %q must use an IP address: %w", cluster.Server, err)
+	}
+
+	route := &generatedModeControlKubeconfigRouteData{Destination: address.String() + "/32"}
+	if address.Is6() {
+		route.FamilyFlag = "-6 "
+		route.Destination = address.String() + "/128"
+	}
+	return route, nil
 }
 
 func containerDockerUser(container networkingv1alpha1.Container) (string, error) {

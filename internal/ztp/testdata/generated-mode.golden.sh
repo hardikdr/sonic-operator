@@ -41,11 +41,32 @@ systemctl enable --now sonic-operator-onie-install.service
 config hostname 'switch-1.lab.example'
 config save -y
 
+# Keep control-cluster traffic from host-networked containers in the SONiC
+# management VRF, including after the switch reboots.
+cat >/etc/systemd/system/sonic-operator-control-kubeconfig-route.service <<'EOF'
+[Unit]
+Description=Route control kubeconfig traffic through the management VRF
+After=interfaces-config.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStartPre=-/usr/sbin/ip rule del priority 900 to 192.0.2.10/32 lookup 5000
+ExecStart=/usr/sbin/ip rule add priority 900 to 192.0.2.10/32 lookup 5000
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now sonic-operator-control-kubeconfig-route.service
+
 # containers
 if ! (
 install -d -m 0700 /etc/sonic-operator/credentials &&
 install -d -m 0700 '/etc/sonic-operator/credentials/wirelet' &&
-printf '%s' 'YXBpVmVyc2lvbjogdjEKa2luZDogQ29uZmlnCg==' | base64 -d >'/etc/sonic-operator/credentials/wirelet/control-kubeconfig' &&
+printf '%s' 'YXBpVmVyc2lvbjogdjEKa2luZDogQ29uZmlnCmN1cnJlbnQtY29udGV4dDogdGVzdApjbHVzdGVyczoKLSBuYW1lOiB0ZXN0CiAgY2x1c3RlcjoKICAgIHNlcnZlcjogaHR0cHM6Ly8xOTIuMC4yLjEwOjY0NDMKY29udGV4dHM6Ci0gbmFtZTogdGVzdAogIGNvbnRleHQ6CiAgICBjbHVzdGVyOiB0ZXN0CiAgICB1c2VyOiB0ZXN0CnVzZXJzOgotIG5hbWU6IHRlc3QKICB1c2VyOiB7fQo=' | base64 -d >'/etc/sonic-operator/credentials/wirelet/control-kubeconfig' &&
 chown 65532:65532 '/etc/sonic-operator/credentials/wirelet/control-kubeconfig' &&
 chmod 0600 '/etc/sonic-operator/credentials/wirelet/control-kubeconfig' &&
 docker pull 'ghcr.io/hardikdr/wirelet:fixed-1' &&
