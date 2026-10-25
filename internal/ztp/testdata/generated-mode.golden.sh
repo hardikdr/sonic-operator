@@ -42,6 +42,30 @@ config hostname 'switch-1.lab.example'
 sonic-db-cli CONFIG_DB HSET 'DEVICE_METADATA|localhost' mac 'aa:bb:cc:dd:ee:ff'
 config save -y
 
+# SONiC can rebuild CONFIG_DB after the provisioning script returns. Reapply
+# switch identity after the database is ready and before SWSS starts, including
+# on subsequent boots.
+cat >/etc/systemd/system/sonic-operator-device-metadata.service <<'EOF'
+[Unit]
+Description=Configure SONiC device metadata
+Requires=database.service
+After=database.service
+Before=swss.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/sonic-db-cli CONFIG_DB HSET DEVICE_METADATA|localhost hostname switch-1.lab.example
+ExecStart=/usr/bin/sonic-db-cli CONFIG_DB HSET DEVICE_METADATA|localhost mac aa:bb:cc:dd:ee:ff
+ExecStart=/usr/local/bin/config save -y
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sonic.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now sonic-operator-device-metadata.service
+
 # Keep control-cluster traffic from host-networked containers in the SONiC
 # management VRF, including after the switch reboots.
 cat >/etc/systemd/system/sonic-operator-control-kubeconfig-route.service <<'EOF'
