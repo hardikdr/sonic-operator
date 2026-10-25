@@ -32,6 +32,7 @@ var generatedModeTemplate = template.Must(
 type generatedModeTemplateData struct {
 	SwitchName             string
 	Hostname               string
+	MACAddress             string
 	ConfigureONIE          bool
 	ControlKubeconfigRoute *generatedModeControlKubeconfigRouteData
 	Containers             []generatedModeContainerData
@@ -86,6 +87,7 @@ func buildGeneratedModeTemplateData(
 	data := &generatedModeTemplateData{
 		SwitchName: switchObject.Name,
 		Hostname:   hostname,
+		MACAddress: switchObject.Spec.MacAddress,
 		Containers: make([]generatedModeContainerData, 0, len(switchObject.Spec.Containers)),
 	}
 

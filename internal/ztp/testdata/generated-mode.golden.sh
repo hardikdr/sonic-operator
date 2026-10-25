@@ -39,6 +39,7 @@ systemctl enable --now onieboot.mount
 systemctl enable --now sonic-operator-onie-install.service
 
 config hostname 'switch-1.lab.example'
+sonic-db-cli CONFIG_DB HSET 'DEVICE_METADATA|localhost' mac 'aa:bb:cc:dd:ee:ff'
 config save -y
 
 # Keep control-cluster traffic from host-networked containers in the SONiC

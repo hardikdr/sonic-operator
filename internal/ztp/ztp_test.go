@@ -129,7 +129,8 @@ users:
 		&networkingv1alpha1.Switch{
 			ObjectMeta: metav1.ObjectMeta{Name: "switch-1"},
 			Spec: networkingv1alpha1.SwitchSpec{
-				Hostname: "switch-1.lab.example",
+				Hostname:   "switch-1.lab.example",
+				MacAddress: "aa:bb:cc:dd:ee:ff",
 				ZTP: &networkingv1alpha1.ZTP{
 					SourceAddress: "192.0.2.10",
 				},
@@ -188,6 +189,7 @@ users:
 		"#!/bin/bash",
 		"set -euo pipefail",
 		"config hostname 'switch-1.lab.example'",
+		"sonic-db-cli CONFIG_DB HSET 'DEVICE_METADATA|localhost' mac 'aa:bb:cc:dd:ee:ff'",
 		"config save -y",
 		"base64 -d >'/etc/sonic-operator/credentials/wirelet/control-kubeconfig'",
 		"chown 65532:65532 '/etc/sonic-operator/credentials/wirelet/control-kubeconfig'",

@@ -39,6 +39,7 @@ systemctl enable --now onieboot.mount
 systemctl enable --now sonic-operator-onie-install.service
 {{ end }}
 config hostname {{ shellQuote .Hostname }}
+sonic-db-cli CONFIG_DB HSET 'DEVICE_METADATA|localhost' mac {{ shellQuote .MACAddress }}
 config save -y
 {{ with .ControlKubeconfigRoute }}
 # Keep control-cluster traffic from host-networked containers in the SONiC
