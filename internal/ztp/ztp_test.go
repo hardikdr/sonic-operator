@@ -4,7 +4,6 @@
 package ztp
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,7 +15,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	networkingv1alpha1 "github.com/ironcore-dev/sonic-operator/api/v1alpha1"
@@ -268,70 +266,6 @@ func TestGeneratedHandlerRejectsMissingControlKubeconfig(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), "bootstrap-control-kubeconfig-file") {
 		t.Errorf("response = %q, want missing kubeconfig error", response.Body.String())
-	}
-}
-
-func TestGeneratedHandlerRendersControlKubeconfigManagementRoute(t *testing.T) {
-	switchObject := &networkingv1alpha1.Switch{
-		ObjectMeta: metav1.ObjectMeta{Name: "switch-1"},
-		Spec: networkingv1alpha1.SwitchSpec{
-			Containers: []networkingv1alpha1.Container{{
-				Name:                    "fabriclet",
-				Image:                   "example.invalid/fabriclet:latest",
-				InjectControlKubeconfig: true,
-				SecurityContext: &networkingv1alpha1.ContainerSecurityContext{
-					RunAsUser: ptr.To[int64](0),
-				},
-			}},
-		},
-	}
-
-	for _, test := range []struct {
-		name        string
-		server      string
-		ipFlag      string
-		destination string
-	}{
-		{name: "IPv4", server: "https://192.0.2.10:6443", destination: "192.0.2.10/32"},
-		{name: "IPv6", server: "https://[2001:db8::10]:6443", ipFlag: "-6 ", destination: "2001:db8::10/128"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			kubeconfigPath := filepath.Join(t.TempDir(), "kubeconfig")
-			kubeconfig := fmt.Sprintf(`apiVersion: v1
-kind: Config
-current-context: test
-clusters:
-- name: test
-  cluster:
-    server: %s
-contexts:
-- name: test
-  context:
-    cluster: test
-    user: test
-users:
-- name: test
-  user: {}
-`, test.server)
-			if err := os.WriteFile(kubeconfigPath, []byte(kubeconfig), 0o600); err != nil {
-				t.Fatal(err)
-			}
-
-			script, err := renderGeneratedScript(switchObject, kubeconfigPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, want := range []string{
-				"/etc/systemd/system/sonic-operator-control-kubeconfig-route.service",
-				"After=interfaces-config.service network-online.target",
-				"ExecStart=/usr/sbin/ip " + test.ipFlag + "rule add priority 900 to " + test.destination + " lookup 5000",
-				"systemctl enable --now sonic-operator-control-kubeconfig-route.service",
-			} {
-				if !strings.Contains(script, want) {
-					t.Errorf("rendered script does not contain %q:\n%s", want, script)
-				}
-			}
-		})
 	}
 }
 

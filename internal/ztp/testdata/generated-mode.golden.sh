@@ -66,27 +66,6 @@ EOF
 systemctl daemon-reload
 systemctl enable --now sonic-operator-device-metadata.service
 
-# Keep control-cluster traffic from host-networked containers in the SONiC
-# management VRF, including after the switch reboots.
-cat >/etc/systemd/system/sonic-operator-control-kubeconfig-route.service <<'EOF'
-[Unit]
-Description=Route control kubeconfig traffic through the management VRF
-After=interfaces-config.service network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-ExecStartPre=-/usr/sbin/ip rule del priority 900 to 192.0.2.10/32 lookup 5000
-ExecStart=/usr/sbin/ip rule add priority 900 to 192.0.2.10/32 lookup 5000
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable --now sonic-operator-control-kubeconfig-route.service
-
 # containers
 if ! (
 install -d -m 0700 /etc/sonic-operator/credentials &&
